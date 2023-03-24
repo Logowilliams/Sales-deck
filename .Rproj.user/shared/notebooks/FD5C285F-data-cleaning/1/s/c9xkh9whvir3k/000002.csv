@@ -1,0 +1,6 @@
+"0","here(""results"", params$year, month, paste(""Week"", params$wk, sep = """"), paste(""Google Weekly Recap (Stores) - Week "", params$wk, "".xlsx"", sep = """"))
+"
+"1","[1]"
+"1"," ""C:/Users/LWilliams/OneDrive - Premium Retail Services/Documents/R/Projects/Sales-deck/results/2023/January/Week52/Google Weekly Recap (Stores) - Week 52.xlsx"""
+"1","
+"

@@ -1,0 +1,46 @@
+"0","#load dependencies"
+"0","library(openxlsx)   #tools for saving xls data"
+"0","library(readxl)     #load xlsx data"
+"0","library(dplyr)      #tools for cleaning data"
+"0","library(here)       #file path management"
+"0","library(janitor)    #row to colheader conversion"
+"0","library(lubridate)  #date/time manipulation"
+"0","library(scales)     #percent format"
+"0",""
+"0","#load data"
+"0","week44 <- read_excel(here(""data/2021/December/Week44/Google Weekly Recap (Stores) - Week 44.xlsx""))"
+"2","New names:
+* `` -> ...17
+* `` -> ...18
+* `` -> ...19
+"
+"0","week45 <- read_excel(here(""data/2021/December/Week45/Google Weekly Recap (Stores) - Week 45.xlsx""))"
+"2","New names:
+* `` -> ...17
+* `` -> ...18
+* `` -> ...19
+"
+"0","week46 <- read_excel(here(""data/2021/December/Week46/Google Weekly Recap (Stores) - Week 46.xlsx""))"
+"2","New names:
+* `` -> ...17
+* `` -> ...18
+* `` -> ...19
+"
+"0","week47 <- read_excel(here(""data/2021/December/Week47/Google Weekly Recap (Stores) - Week 47.xlsx""))"
+"2","New names:
+* `` -> ...17
+* `` -> ...18
+* `` -> ...19
+"
+"0","week48 <- read_excel(here(""data/2021/December/Week48/Google Weekly Recap (Stores) - Week 48.xlsx""))"
+"2","New names:
+* `` -> ...17
+* `` -> ...18
+* `` -> ...19
+* `` -> ...20
+"
+"0","#merge data"
+"0","tot_sales <- bind_rows(week44, week45, week46, week47, week48)"
+"2","Error: Can't combine `..1$...17` <double> and `..5$...17` <character>.
+[90mRun `rlang::last_error()` to see where the error occurred.[39m
+"

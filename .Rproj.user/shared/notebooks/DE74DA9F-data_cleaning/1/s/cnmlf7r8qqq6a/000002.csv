@@ -1,0 +1,6 @@
+"0","#load dependencies"
+"0","library(dplyr)    #tools for cleaning data"
+"0","library(here)     #file path management"
+"0","library(readxl)   #load excel data"
+"0","library(openxlsx)"
+"0","library(janitor)"

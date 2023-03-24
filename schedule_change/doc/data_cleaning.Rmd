@@ -1,0 +1,68 @@
+---
+title: "New Schedule Data Cleaning"
+author: "Logan Williams"
+date: "2/1/2022"
+output: html_document
+---
+
+```{r}
+#load dependencies
+library(dplyr)    #tools for cleaning data
+library(here)     #file path management
+library(readxl)   #load excel data
+library(openxlsx)
+library(janitor)
+```
+
+
+# Store Specific Breakdown
+```{r}
+#load data
+week50 <- read_excel(here("data/2022/January/Week50/store.xlsx"), sheet = 2)
+week51 <- read_excel(here("data/2022/January/Week51/store.xlsx"), sheet = 2)
+week52 <- read_excel(here("data/2022/January/Week52/store.xlsx"), sheet = 2)
+week1 <- read_excel(here("data/2022/February/Week1/store.xlsx"), sheet = 2)
+```
+
+```{r}
+#create empty dataframe
+stores <- data.frame()
+summary <- data.frame()
+#create week num
+num <- 50
+
+#iterate through weeks and combine to nov dataframe
+for(i in list(week50, week51, week52)){
+#remove empty rows
+clean <- i[!is.na(i[1]),]
+#add first row as column headers
+clean <- janitor::row_to_names(clean, 1)
+#filter for current week of sales
+sales <- mutate(clean, `WM Week` = paste(2021, num, sep = ""))
+sales%>%
+group_by(`WM Week`, `Store Nbr`)%>%
+  summarise(pos_qty = sum(as.numeric(`POS Qty`)), returns = sum(as.numeric(`Total Customer Item Return`)), gross_unit = returns + pos_qty) -> sum
+store_change <- filter(sum, `Store Nbr` == 719 | `Store Nbr` == 1591 | `Store Nbr` == 5189 | `Store Nbr` == 3159)
+#combine with nov dataframe
+stores <- bind_rows(store_change, stores)
+summary <- bind_rows(summary, sum)
+num = num+1 
+}
+```
+
+```{r}
+# Create a blank workbook
+wb <- createWorkbook()
+
+# Add some sheets to the workbook
+addWorksheet(wb, "All Stores")
+addWorksheet(wb, "Schedule Change")
+
+
+# Write the data to the sheets
+writeData(wb, sheet = "All Stores", x = summary)
+writeData(wb, sheet = "Schedule Change", x = stores)
+
+# Export the file
+saveWorkbook(wb, here("schedule_change/results", "clean_data.xlsx"), overwrite = TRUE)
+```

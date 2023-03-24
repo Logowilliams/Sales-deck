@@ -1,0 +1,12 @@
+---
+title: "Google-Sheets-Testing"
+author: "Logan Williams"
+date: "12/7/2021"
+output: html_document
+---
+```{r}
+#load dependencies
+library(googlesheets4)
+test <- read_sheet("https://docs.google.com/spreadsheets/d/19q0TMdlW6iWvuBjEI5C2TtZgHvyKhK8YM1tlrzoUe6U/edit#gid=2124411552")
+```
+

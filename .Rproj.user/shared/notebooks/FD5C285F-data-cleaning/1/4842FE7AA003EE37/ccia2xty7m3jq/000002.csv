@@ -1,0 +1,9 @@
+"0","#create pivot table"
+"0","sales%>%"
+"0","  mutate(WeekEnd = this_week$WeekEnd, .after = `WM Week`) -> salesByStore"
+"0",""
+"0","skuByStore%>%"
+"0","  group_by(`WM Week`, WeekEnd, `Store Nbr`)%>%"
+"0","  summarise(POS_Unit = sum(Net_Unit), POS_Sales = sum(Net_Sales), Gross_Unit = sum(Gross_Unit), Gross_POS = sum(GrossPOS), Return_Unit = sum(Return_Unit))->salesByStore"
+"2","`summarise()` has grouped output by 'WM Week', 'WeekEnd'. You can override using the `.groups` argument.
+"

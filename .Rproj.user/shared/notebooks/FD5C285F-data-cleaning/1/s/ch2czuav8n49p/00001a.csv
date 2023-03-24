@@ -1,0 +1,7 @@
+"0","totSalesCheck <- salesCheck + sum(online$`Net Units`) + sum(online$`Return Units`)"
+"0","tot_salesGross <- sum(tot_sales$`POS Qty`)+sum(tot_sales$`Total Customer Item Return`)"
+"0","if(tot_salesGross != totSalesCheck) stop(""error: tot_sales gross units "", tot_salesGross, "" but should be "", totSalesCheck)"
+"0",""
+"0","if(sum(salesByStore$Gross_Unit) != totSalesCheck) stop(""Error: salesByStore gross units:"", sum(salesByStore$Gross_Unit), "" but should be "", totSalesCheck)"
+"2","Error: Error: salesByStore gross units:13059 but should be 13349
+"

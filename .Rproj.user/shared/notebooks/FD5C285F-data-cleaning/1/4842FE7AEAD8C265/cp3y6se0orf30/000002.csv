@@ -1,0 +1,10 @@
+"0","sku_ref <- read_excel(here(""data/base_data/sku_ref.xlsx""))"
+"0",""
+"0","sales_pvt%>%"
+"0","  mutate(gross_unit = `Total Customer Item Return` + `POS Qty`)%>%"
+"0","  select(`Item Nbr`, gross_unit)-> top_sku"
+"2","Adding missing grouping variables: `WM Week`, `Brand Desc`, `Vendor Stk Nbr`, `Item Flags`
+"
+"0","top_sku_clean <- inner_join(top_sku, sku_ref)"
+"2","Joining, by = ""Item Nbr""
+"

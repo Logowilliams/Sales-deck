@@ -1,0 +1,48 @@
+"0","#load data"
+"0","raw_store <- read_excel(here(""data"", params$year, month, paste(""Week"", params$wk, sep = """"), ""store.xlsx""), sheet = 1)"
+"2","New names:
+* `` -> ...1
+* `` -> ...3
+* `` -> ...4
+* `` -> ...5
+* `` -> ...6
+* ...
+"
+"0","#remove empty rows"
+"0","store <- raw_store[!is.na(raw_store[1]),]"
+"0","#add first row as column headers"
+"0","store <- janitor::row_to_names(store, 1)"
+"0",""
+"0","#separate data between inventory and this weeks sales"
+"0","inventory <- filter(store, `WM Week` == paste(params$year-1, (params$wk +1), sep = """"))"
+"0","sales <- filter(store, `WM Week` == paste(params$year-1, params$wk, sep = """"))"
+"0",""
+"0","#transform sales data to numeric to prep for summarise"
+"0","sales$`POS Qty` <- as.numeric(sales$`POS Qty`)"
+"0","sales$`POS Sales` <- as.numeric(sales$`POS Sales`)"
+"0","sales$`Total Customer Item Return` <- as.numeric(sales$`Total Customer Item Return`)"
+"0","#remove negative POS Qty"
+"0","#sales <- filter(sales, `POS Qty` >= 0)"
+"0",""
+"0","#create pivot table"
+"0","sales%>%"
+"0","  group_by(`WM Week`, `Brand Desc`, `Vendor Stk Nbr`, `Item Nbr`, `Item Flags`, `UPC`)%>%"
+"0","  summarise(`POS Qty` = sum(`POS Qty`), `POS Sales` = sum(`POS Sales`), `Total Customer Item Return` = sum(`Total Customer Item Return`)) -> sales_pvt"
+"2","`summarise()` has grouped output by 'WM Week', 'Brand Desc', 'Vendor Stk Nbr', 'Item Nbr', 'Item Flags'. You can override using the `.groups` argument.
+"
+"0","#enter blank values for Item Flags"
+"0","sales_pvt$`Item Flags` <- """""
+"0",""
+"0","#add week end/start, store nbr, and Curr columns"
+"0","sales_pvt%>%"
+"0","  mutate(WeekStart = this_week$WeekStart, .before = `WM Week`)%>%"
+"0","  mutate(WeekEnd = this_week$WeekEnd, .before = `WM Week`)%>%"
+"0","  mutate(`Store Nbr` = 0, .after = `WM Week`)%>%"
+"0","  mutate(`Curr Str On Hand Qty` = 0)%>%"
+"0","  mutate(`Curr Instock %` = 0)%>%"
+"0","  mutate(`Curr Str On Order Qty` = 0)%>%"
+"0","  mutate(`Curr Str In Transit Qty` = 0)-> sales_pvt"
+"0",""
+"0","#remove time from date field"
+"0","sales_pvt$WeekStart <- as.Date(sales_pvt$WeekStart)"
+"0","sales_pvt$WeekEnd <- as.Date(sales_pvt$WeekEnd)"

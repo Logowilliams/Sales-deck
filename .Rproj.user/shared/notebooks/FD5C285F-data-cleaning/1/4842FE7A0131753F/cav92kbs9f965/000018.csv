@@ -1,0 +1,21 @@
+"0","#load dependencies"
+"0","library(openxlsx)   #tools for saving xls data"
+"0","library(readxl)     #load xlsx data"
+"0","library(dplyr)      #tools for cleaning data"
+"0","library(here)       #file path management"
+"0","library(janitor)    #row to colheader conversion"
+"0","library(lubridate)  #date/time manipulation"
+"0","library(scales)     #percent format"
+"0",""
+"0","#load Walmart Week data"
+"0","weeks <- read_excel(here(""data/2021/Walmart Weeks.xlsx""))"
+"0","#filter for current week"
+"0","this_week <- filter(weeks, `WM Week` == paste(params$year, params$wk, sep = """"))"
+"0","#get current month for file paths"
+"0","month <- month.name[month(this_week$WeekStart)]"
+"0","#load Store nbr data for later"
+"0","storenbr <- read_excel(here(""data"", params$year, month, paste(""Week"", params$wk, sep = """"), ""store.xlsx""), sheet = 2)"
+"2","New names:
+* `` -> ...1
+* `` -> ...3
+"

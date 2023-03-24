@@ -1,0 +1,4 @@
+"0","salesCheck <- sum(sales$`POS Qty`)+sum(sales$`Total Customer Item Return`)"
+"0","if(sum(salesByStore$Gross_Unit) != salesCheck) stop(""Error in salesByStore gross unit total"")"
+"0","if(sum(sales_pvt$`POS Qty`)+sum(sales_pvt$`Total Customer Item Return`) != salesCheck) stop(""Error in sales_pvt gross unit total"")"
+"0","if(sum(skuByStore$Gross_Unit) != salesCheck) stop(""Error in skuByStore gross unit total"")"

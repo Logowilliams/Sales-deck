@@ -1,0 +1,11 @@
+"0","#load dependencies"
+"0","library(dplyr)    #tools for cleaning data"
+"0","library(here)     #file path management"
+"0","library(readxl)   #load excel data"
+"0","library(openxlsx)"
+"0","library(janitor)"
+"0",""
+"0","#load data"
+"0","week39 <- read_excel(here(""data/week39.xlsx""))"
+"2","Error: `path` does not exist: ‘C:/Users/LWilliams/OneDrive - Premium Retail Services/Documents/R/Projects/Sales-deck/data/week39.xlsx’
+"

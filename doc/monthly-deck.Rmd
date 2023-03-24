@@ -1,0 +1,44 @@
+---
+title: "Monthly-Deck"
+author: "Logan Williams"
+date: "1/4/2022"
+output: html_document
+---
+
+```{r}
+#load dependencies
+library(openxlsx)   #tools for saving xls data
+library(readxl)     #load xlsx data
+library(dplyr)      #tools for cleaning data
+library(here)       #file path management
+library(janitor)    #row to colheader conversion
+library(lubridate)  #date/time manipulation
+library(scales)     #percent format
+
+#load data
+week44 <- read_excel(here("data/2021/December/Week44/Google Weekly Recap (Stores) - Week 44.xlsx"))
+week45 <- read_excel(here("data/2021/December/Week45/Google Weekly Recap (Stores) - Week 45.xlsx"))
+week46 <- read_excel(here("data/2021/December/Week46/Google Weekly Recap (Stores) - Week 46.xlsx"))
+week47 <- read_excel(here("data/2021/December/Week47/Google Weekly Recap (Stores) - Week 47.xlsx"))
+week48 <- read_excel(here("data/2021/December/Week48/Google Weekly Recap (Stores) - Week 48.xlsx"))
+
+#merge data
+tot_sales <- bind_rows(week44, week45, week46, week47, week48)
+```
+
+#Total ASP
+```{r}
+#calculate necessary values
+tot_sales%>%
+  mutate(`Gross Unit` = sum(`POS Qty`+`Total Customer Item Return`))%>%
+  mutate(`NetASP` = `POS Sales`/`POS Qty`)%>%
+  mutate(`GrossPOS Sales` = `Gross Unit`*`NetASP`)-> asp
+
+#replace missing values with zero
+asp$`Gross Unit`[is.na(asp$`Gross Unit`)] <- 0
+asp$NetASP[is.na(asp$NetASP)] <- 0
+asp$`GrossPOS Sales`[is.na(asp$`GrossPOS Sales`)] <- 0
+
+#return ASP
+round(sum(asp$`GrossPOS Sales`)/sum(asp$`Gross Unit`))
+```

@@ -1,0 +1,8 @@
+"0","#create column index"
+"0","cols.num <- c(3,4,7,9:13, 15,16)"
+"0","#prep for merge, make sure columns have same class"
+"0","sales_pvt[cols.num] <- sapply(sales_pvt[cols.num],as.numeric)"
+"0","online_clean[cols.num] <- sapply(online_clean[cols.num],as.numeric)"
+"0","online_clean$`Vendor Stk Nbr`<- as.character(online_clean$`Vendor Stk Nbr`)"
+"0","#merge"
+"0","tot_sales <- bind_rows(sales_pvt, online_clean)"

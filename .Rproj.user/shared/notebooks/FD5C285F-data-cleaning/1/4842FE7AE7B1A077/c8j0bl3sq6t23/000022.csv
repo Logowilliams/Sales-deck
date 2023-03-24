@@ -1,0 +1,10 @@
+"0","#create column index"
+"0","cols.num.inv <- c(1,5,7:14)"
+"0","#prep for merge, make sure columns have same class"
+"0","inventory[cols.num.inv] <- sapply(inventory[cols.num.inv],as.numeric)"
+"2","NAs introduced by coercion"
+"0","inventory%>%"
+"0","  group_by(`WM Week`, `Brand Desc`, `Vendor Stk Nbr`, `Item Nbr`, `Item Flags`, `UPC`)%>%"
+"0","  summarise()"
+"2","`summarise()` has grouped output by 'WM Week', 'Brand Desc', 'Vendor Stk Nbr', 'Item Nbr', 'Item Flags'. You can override using the `.groups` argument.
+"

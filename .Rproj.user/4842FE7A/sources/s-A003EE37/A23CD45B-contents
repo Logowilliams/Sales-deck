@@ -1,0 +1,181 @@
+---
+title: "ASP Aggregate"
+author: "Logan Williams"
+date: "9/7/2022"
+output: html_document
+---
+
+```{r}
+#load dependencies
+library(dplyr)      #tools for cleaning data
+library(here)       #file path management
+library(readxl)     #load xlsx data
+library(openxlsx)   #tools for saving xls data
+```
+#In Store
+```{r}
+monthList <- c("February", "March", "April", "May", "June", "July", "August", "September", "October")
+```
+
+```{r}
+completeSales <- data.frame()
+weekNum <- 1
+month <- 1
+while(weekNum < 37){
+  #load data
+  raw_store <- read_excel(here("data/2022", monthList[month], paste("Week", weekNum, sep = ""), "store.xlsx"), sheet = 1)
+  #remove empty rows
+  store <- raw_store[!is.na(raw_store[1]),]
+  #add first row as column headers
+  store <- janitor::row_to_names(store, 1)
+
+  #separate data between inventory and this weeks sales
+  if(weekNum<10){
+    sales <- filter(store, `WM Week` == paste(20220, weekNum, sep = ""))
+  }else{
+  sales <- filter(store, `WM Week` == paste(2022, weekNum, sep = ""))
+  }
+
+  #transform sales data to numeric to prep for summarise
+  sales$`POS Qty` <- as.numeric(sales$`POS Qty`)
+  sales$`POS Sales` <- as.numeric(sales$`POS Sales`)
+  sales$`Total Customer Item Return` <- as.numeric(sales$`Total Customer Item Return`)
+  #remove negative POS Qty
+
+  #create pivot table
+  sales%>%
+    group_by(`WM Week`, `Brand Desc`, `Vendor Stk Nbr`, `Item Nbr`, `Item Flags`, `UPC`)%>%
+    summarise(`POS Qty` = sum(`POS Qty`), `POS Sales` = sum(`POS Sales`), `Total Customer Item Return` = sum(`Total Customer Item Return`)) -> sales_pvt
+
+  #enter blank values for Item Flags
+  sales_pvt$`Item Flags` <- ""
+  sales_pvt <- mutate(sales_pvt, month = monthList[month])
+  
+  completeSales <- bind_rows(completeSales, sales_pvt)
+  
+  weekNum <- weekNum + 1
+  if(file.exists(here("data/2022", monthList[month], paste("Week", weekNum, sep = ""), "store.xlsx"))){
+    print("Continuing...")
+  }else{
+    #print("Month of", monthList, "successfully added. Moving to", monthList[month+1])
+    month <- month + 1
+  }
+}
+#january data
+month <- "January"
+weekNum <- 49
+while(weekNum <53){
+  #load data
+  raw_store <- read_excel(here("data/2022", month, paste("Week", weekNum, sep = ""), "store.xlsx"), sheet = 1)
+  #remove empty rows
+  store <- raw_store[!is.na(raw_store[1]),]
+  #add first row as column headers
+  store <- janitor::row_to_names(store, 1)
+
+  #separate data between inventory and this weeks sales
+  sales <- filter(store, `WM Week` == paste(2021, weekNum, sep = ""))
+
+  #transform sales data to numeric to prep for summarise
+  sales$`POS Qty` <- as.numeric(sales$`POS Qty`)
+  sales$`POS Sales` <- as.numeric(sales$`POS Sales`)
+  sales$`Total Customer Item Return` <- as.numeric(sales$`Total Customer Item Return`)
+  #remove negative POS Qty
+
+  #create pivot table
+  sales%>%
+    group_by(`WM Week`, `Brand Desc`, `Vendor Stk Nbr`, `Item Nbr`, `Item Flags`, `UPC`)%>%
+    summarise(`POS Qty` = sum(`POS Qty`), `POS Sales` = sum(`POS Sales`), `Total Customer Item Return` = sum(`Total Customer Item Return`)) -> sales_pvt
+
+  #enter blank values for Item Flags
+  sales_pvt$`Item Flags` <- ""
+  sales_pvt <- mutate(sales_pvt, month = monthList[month])
+  
+  completeSales <- bind_rows(completeSales, sales_pvt)
+  
+  weekNum <- weekNum + 1
+}
+```
+
+
+#Online
+```{r}
+monthList <- c("February", "March", "April", "May", "June", "July", "August", "September", "October")
+```
+
+```{r}
+completeSalesOnline <- data.frame()
+weekNum <- 1
+month <- 1
+while(weekNum < 37){
+  #load data
+  raw_online <- read_excel(here("data/2022", monthList[month], paste("Week", weekNum, sep = ""), "online.xlsx"), sheet = 1)
+
+  if(weekNum<10){
+    online <- mutate(raw_online, `WM Week` = paste(20220, weekNum, sep = ""))
+  }else{
+  online <- mutate(raw_online, `WM Week` = paste(2022, weekNum, sep = ""))
+  }
+  
+#Rename columns, mutate columns to perform calculations
+online%>%
+  mutate(`POS Sales` = `Average Unit Retail`*`Net Units`)%>%
+  mutate(`Item Flags` = "")%>%
+  mutate(monthName = monthList[month])%>%
+  select(`WM Week`, `BRAND_NAME`, `CATLG_ITEM_ID`, `WM_ITEM_NUMBER (Dotcom)`, `Item Flags`, WUPC, `Net Units`, `POS Sales`, `Return Units`, monthName)%>%
+  rename(`Brand Desc` = `BRAND_NAME`)%>%
+  rename(`Vendor Stk Nbr` = `CATLG_ITEM_ID`)%>%
+  rename(`Item Nbr` = `WM_ITEM_NUMBER (Dotcom)`)%>%
+  rename(UPC = WUPC)%>%
+  rename(`POS Qty` = `Net Units`)%>%
+  rename(`Total Customer Item Return` = `Return Units`)-> onlineSales
+  
+  completeSalesOnline <- bind_rows(completeSalesOnline, onlineSales)
+  
+  weekNum <- weekNum + 1
+  if(file.exists(here("data/2022", monthList[month], paste("Week", weekNum, sep = ""), "online.xlsx"))){
+    print("Continuing...")
+  }else{
+    #print("Month of", monthList, "successfully added. Moving to", monthList[month+1])
+    month <- month + 1
+  }
+}
+#january data
+month <- "January"
+weekNum <- 49
+while(weekNum <53){
+  online <- mutate(raw_online, `WM Week` = paste(2021, weekNum, sep = ""))
+  #load data
+  rawOnline <- read_excel(here("data/2022", month, paste("Week", weekNum, sep = ""), "online.xlsx"), sheet = 1)
+  #Rename columns, mutate columns to perform calculations
+online%>%
+  mutate(`POS Sales` = `Average Unit Retail`*`Net Units`)%>%
+  mutate(`Item Flags` = "")%>%
+  #mutate(monthName = month)%>%
+  select(`WM Week`, `BRAND_NAME`, `CATLG_ITEM_ID`, `WM_ITEM_NUMBER (Dotcom)`, `Item Flags`, WUPC, `Net Units`, `POS Sales`, `Return Units`)%>%
+  rename(`Brand Desc` = `BRAND_NAME`)%>%
+  rename(`Vendor Stk Nbr` = `CATLG_ITEM_ID`)%>%
+  rename(`Item Nbr` = `WM_ITEM_NUMBER (Dotcom)`)%>%
+  rename(UPC = WUPC)%>%
+  rename(`POS Qty` = `Net Units`)%>%
+  rename(`Total Customer Item Return` = `Return Units`)-> onlineSales
+  
+  completeSalesOnline <- bind_rows(completeSalesOnline, onlineSales)
+  
+  weekNum <- weekNum + 1
+}
+```
+
+```{r}
+#save output
+wb <- createWorkbook()
+
+# Add some sheets to the workbook
+addWorksheet(wb, "onlineASP")
+addWorksheet(wb, "storeASP")
+
+writeData(wb, sheet = "storeASP", x = completeSales)
+writeData(wb, sheet = "onlineASP", x = completeSalesOnline)
+
+# Export the file
+saveWorkbook(wb, here("results/2022/aspTotals.xlsx"), overwrite = TRUE)
+```

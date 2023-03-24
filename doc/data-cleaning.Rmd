@@ -1,0 +1,645 @@
+---
+title: "data-cleaning"
+author: "Logan Williams"
+date: "12/3/2021"
+output: html_document
+params:
+  wk: 52
+  year: 2023
+  month: "January"
+  monthlyTracker: "https://docs.google.com/spreadsheets/d/1zS9KHYaF8hkdCaIK2WDkM9mMxwPI9QO1FAjl-rpK2xA/edit#gid=30792091"
+---
+
+```{r}
+#load dependencies
+library(openxlsx)   #tools for saving xls data
+library(readxl)     #load xlsx data
+library(dplyr)      #tools for cleaning data
+library(here)       #file path management
+library(janitor)    #row to colheader conversion
+library(lubridate)  #date/time manipulation
+library(scales)     #percent format
+library(zoo)        #handle infinite values
+library(stringr)    #remove whitespaces
+library(googlesheets4) #update google sheets
+
+storelist <- read_excel(here("data/base_data/storelist.xlsx"))
+storelist$StoreNumber <- as.character(storelist$StoreNumber)
+#load Walmart Week data
+weeks <- read_excel(here("data", params$year, "Walmart Weeks.xlsx"))
+
+#filter for current week
+if(params$wk < 10){
+  this_week <- filter(weeks, `WM Week` == paste(params$year, 0, params$wk, sep = ""))
+}else if(params$wk > 48){
+  this_week <- filter(weeks, `WM Week` == paste(params$year-1, params$wk, sep = ""))
+}else{
+  this_week <- filter(weeks, `WM Week` == paste(params$year, params$wk, sep = ""))
+}
+
+#get current month for file paths
+month <- params$month
+
+#load UPC data for monthly SKU tracker
+online_inv_sku <- read_excel(here("data/base_data/online_inv_sku.xlsx"))
+store_inv_sku <- read_excel(here("data/base_data/store_inv_sku.xlsx"))
+store_sales_sku <- read_excel(here("data/base_data/store_sales_sku.xlsx"))
+```
+
+```{r}
+# Create results folder path for current week
+here::here()
+dir.create(getwd())
+dir.create(here::here(file.path("results", params$year)))
+dir.create(here::here(file.path("results", params$year, month)))
+dir.create(here::here(file.path("results", params$year, month, paste("Week", params$wk, sep = ""))))
+```
+
+#In Store Data
+```{r}
+#load data
+raw_store <- read_excel(here("data", params$year, month, paste("Week", params$wk, sep = ""), "store.xlsx"), sheet = 1)
+#remove empty rows
+store <- raw_store[!is.na(raw_store[1]),]
+#add first row as column headers
+store <- janitor::row_to_names(store, 1)
+
+#separate data between inventory and this weeks sales
+if(params$wk < 10){
+  inventory <- filter(store, `WM Week` == paste(params$year, 0,params$wk+1, sep = ""))
+  sales <- filter(store, `WM Week` == paste(params$year, 0, params$wk, sep = ""))
+}else if(params$wk >= 48){
+  inventory <- filter(store, `WM Week` == paste(params$year-1, params$wk+1, sep = ""))
+  sales <- filter(store, `WM Week` == paste(params$year-1, params$wk, sep = ""))
+}else{
+  inventory <- filter(store, `WM Week` == paste(params$year, params$wk+1, sep = ""))
+  sales <- filter(store, `WM Week` == paste(params$year, params$wk, sep = ""))
+}
+
+#transform sales data to numeric to prep for summarise
+sales$`POS Qty` <- as.numeric(sales$`POS Qty`)
+sales$`POS Sales` <- as.numeric(sales$`POS Sales`)
+sales$`Total Customer Item Return` <- as.numeric(sales$`Total Customer Item Return`)
+
+#create pivot table
+sales%>%
+  group_by(`WM Week`, `Brand Desc`, `Vendor Stk Nbr`, `Item Nbr`, `Item Flags`, `UPC`)%>%
+  summarise(`POS Qty` = sum(`POS Qty`), `POS Sales` = sum(`POS Sales`), `Total Customer Item Return` = sum(`Total Customer Item Return`)) -> sales_pvt
+
+#enter blank values for Item Flags
+sales_pvt$`Item Flags` <- ""
+
+#add week end/start, store nbr, and Curr columns
+sales_pvt%>%
+  mutate(WeekStart = this_week$WeekStart, .before = `WM Week`)%>%
+  mutate(WeekEnd = this_week$WeekEnd, .before = `WM Week`)%>%
+  mutate(`Store Nbr` = 0, .after = `WM Week`)%>%
+  mutate(`Curr Str On Hand Qty` = 0)%>%
+  mutate(`Curr Instock %` = 0)%>%
+  mutate(`Curr Str On Order Qty` = 0)%>%
+  mutate(`Curr Str In Transit Qty` = 0)-> sales_pvt
+
+#remove time from date field
+sales_pvt$WeekStart <- as.Date(sales_pvt$WeekStart)
+sales_pvt$WeekEnd <- as.Date(sales_pvt$WeekEnd)
+```
+
+#Sales by SKU by Store
+```{r}
+#create pivot table
+sales%>%
+  mutate(GrossUnit = `POS Qty`+`Total Customer Item Return`)%>%
+  group_by(`WM Week`, `Store Nbr`, `Item Nbr`, `UPC`)%>%
+  summarise(Net_Unit = sum(`POS Qty`), Net_Sales = sum(`POS Sales`), Gross_Unit = sum(GrossUnit), Return_Unit = sum(`Total Customer Item Return`), GrossPOS = sum(Gross_Unit*(Net_Sales/Net_Unit)))->skuByStore
+
+#replace missing/infinite values with 0
+skuByStore$GrossPOS[is.na(skuByStore$GrossPOS)] <- 0
+skuByStore$GrossPOS[is.infinite(skuByStore$GrossPOS)] <- 0
+         
+#add week end/start, store nbr, and Curr columns
+skuByStore%>%
+  mutate(WeekStart = this_week$WeekStart, .before = `WM Week`)%>%
+  mutate(WeekEnd = this_week$WeekEnd, .after = `WM Week`)%>%
+  mutate(`Curr Str On Hand Qty` = 0, .before = GrossPOS)%>%
+  mutate(`Curr Instock %` = 0, .after = `Curr Str On Hand Qty`)%>%
+  mutate(`Curr Str On Order Qty` = 0, .after = `Curr Instock %`)%>%
+  mutate(`Curr Str In Transit Qty` = 0, .after = `Curr Str On Order Qty`)%>%
+  dplyr::select(WeekStart, `WM Week`, WeekEnd, `Store Nbr`, `Item Nbr`, UPC, Net_Unit, Net_Sales, Gross_Unit, Return_Unit, `Curr Str On Hand Qty`,
+                `Curr Instock %`, `Curr Str On Order Qty`, `Curr Str In Transit Qty`, GrossPOS)-> skuByStore
+
+#remove time from date field
+skuByStore$WeekStart <- as.Date(skuByStore$WeekStart)
+skuByStore$WeekEnd <- as.Date(skuByStore$WeekEnd)
+```
+
+#SQL Data Upload Prep
+```{r}
+#create pivot table
+sales%>%
+  group_by(`WM Week`, `Store Nbr`, `Item Nbr`, `UPC`, `Brand Desc`)%>%
+  summarise(Net_Unit = sum(`POS Qty`), Net_Sales = sum(`POS Sales`), Return_Unit = sum(`Total Customer Item Return`))->sql
+         
+#add week end/start, store nbr, and Curr columns
+sql%>%
+  mutate(WeekStart = this_week$WeekStart, .before = `WM Week`)%>%
+  mutate(WeekEnd = this_week$WeekEnd, .after = `WM Week`)%>%
+  mutate(`Curr Str On Hand Qty` = 0)%>%
+  mutate(`Curr Instock %` = 0, .after = `Curr Str On Hand Qty`)%>%
+  mutate(`Curr Str On Order Qty` = 0, .after = `Curr Instock %`)%>%
+  mutate(`Curr Str In Transit Qty` = 0, .after = `Curr Str On Order Qty`)%>%
+  dplyr::select(WeekStart, `Brand Desc`, `WM Week`, WeekEnd, `Store Nbr`, `Item Nbr`, UPC, Net_Unit, Net_Sales, Return_Unit, `Curr Str On Hand Qty`,
+                `Curr Instock %`, `Curr Str On Order Qty`, `Curr Str In Transit Qty`)-> sqlClean
+
+#remove time from date field
+sqlClean$WeekStart <- as.Date(sqlClean$WeekStart)
+sqlClean$WeekEnd <- as.Date(sqlClean$WeekEnd)
+```
+
+#Aggregate Sales by Store
+```{r}
+#create pivot table
+sales%>%
+  mutate(WeekEnd = this_week$WeekEnd, .after = `WM Week`) -> salesByStore
+
+skuByStore%>%
+  group_by(`WM Week`, WeekEnd, `Store Nbr`)%>%
+  summarise(POS_Unit = sum(Net_Unit), POS_Sales = sum(Net_Sales), Gross_Unit = sum(Gross_Unit), Gross_POS = sum(GrossPOS), Return_Unit = sum(Return_Unit))->salesByStore
+```
+#Check Totals
+```{r}
+salesCheck <- sum(sales$`POS Qty`)+sum(sales$`Total Customer Item Return`)
+if(sum(salesByStore$Gross_Unit) != salesCheck) stop("Error in salesByStore gross unit total")
+if(sum(sales_pvt$`POS Qty`)+sum(sales_pvt$`Total Customer Item Return`) != salesCheck) stop("Error in sales_pvt gross unit total")
+if(sum(skuByStore$Gross_Unit) != salesCheck) stop("Error in skuByStore gross unit total")
+```
+
+
+#Online Data
+```{r}
+#load online data
+online <- read_excel(here("data", params$year, month, paste("Week", params$wk, sep = ""), "online.xlsx"))
+#add POS Sales column
+online <- mutate(online, `POS Sales` = `Average Unit Retail`*`Net Units`)
+
+#Rename columns, mutate columns to perform calculations
+online%>%
+  mutate(WeekStart = this_week$WeekStart)%>%
+  mutate(WeekEnd = this_week$WeekEnd)%>%
+  mutate(`Store Nbr` = 99999)%>%
+  mutate(`WM Week` = this_week$`WM Week`)%>%
+  mutate(`POS Sales` = `Average Unit Retail`*`Net Units`)%>%
+  mutate(`Curr Str On Hand Qty` = 0)%>%
+  mutate(`Curr Instock %` = 0)%>%
+  mutate(`Curr Str On Order Qty` = 0)%>%
+  mutate(`Curr Str In Transit Qty` = 0)%>%
+  mutate(`Item Flags` = "")%>%
+  select(WeekStart, WeekEnd, `WM Week`, `Store Nbr`, `BRAND_NAME`, `CATLG_ITEM_ID`, `WM_ITEM_NUMBER (Dotcom)`, `Item Flags`, WUPC, `Net Units`, `POS Sales`, `Return Units`, `Curr Str On Hand Qty`, `Curr Instock %`, `Curr Str On Order Qty`, `Curr Str In Transit Qty`)-> onlineTransformed
+
+onlineTransformed%>%
+  rename(`Brand Desc` = `BRAND_NAME`)%>%
+  rename(`Vendor Stk Nbr` = `CATLG_ITEM_ID`)%>%
+  rename(`Item Nbr` = `WM_ITEM_NUMBER (Dotcom)`)%>%
+  rename(UPC = WUPC)%>%
+  rename(`POS Qty` = `Net Units`)%>%
+  rename(`Total Customer Item Return` = `Return Units`)-> online_clean
+
+
+#remove time from date field
+online_clean$WeekStart <- as.Date(online_clean$WeekStart)
+online_clean$WeekEnd <- as.Date(online_clean$WeekEnd)
+
+#Create Online Data for skuByStore Merge
+online_clean%>%
+  mutate(Gross_Unit = `POS Qty`+`Total Customer Item Return`)%>%
+  mutate(GrossPOS = Gross_Unit*(`POS Sales`/`POS Qty`))%>%
+  rename(Return_Unit = `Total Customer Item Return`)%>%
+  rename(Net_Sales = `POS Sales`)%>%
+  rename(Net_Unit = `POS Qty`)%>%
+  dplyr::select(WeekStart, `WM Week`, WeekEnd, `Store Nbr`, `Item Nbr`, UPC, Net_Unit, Net_Sales, Gross_Unit, Return_Unit, `Curr Str On Hand Qty`,
+                `Curr Instock %`, `Curr Str On Order Qty`, `Curr Str In Transit Qty`, GrossPOS) -> skuByOnline
+
+#replace missing/infinite values with 0
+skuByOnline$GrossPOS[is.na(skuByOnline$GrossPOS)] <- 0
+skuByOnline$GrossPOS[is.infinite(skuByOnline$GrossPOS)] <- 0
+```
+
+#Merge Online and In Store Data
+```{r}
+##############
+#Sku by store#
+##############
+#create column index
+cols.num <- c(3,4,9:13, 15,16)
+#prep for merge, make sure columns have same class
+sales_pvt[cols.num] <- sapply(sales_pvt[cols.num],as.numeric)
+sales_pvt[7] <- sapply(sales_pvt[7],as.character)
+online_clean[cols.num] <- sapply(online_clean[cols.num],as.numeric)
+online_clean$`Vendor Stk Nbr`<- as.character(online_clean$`Vendor Stk Nbr`)
+#merge
+tot_sales <- bind_rows(sales_pvt, online_clean)
+
+#prep data for merge
+skuByOnline[c(2,4,6)] <- sapply(skuByOnline[c(2,4,6)],as.character)
+
+#Merge Store by Sku and Online by Sku
+skuByStoreClean <- bind_rows(skuByStore,skuByOnline)
+
+################
+#Sales by store#
+################
+skuByOnline%>%
+  dplyr::select(`WM Week`, `WeekEnd`, `Store Nbr`, Net_Unit, Net_Sales, Gross_Unit, GrossPOS, Return_Unit) -> tempOnline
+
+salesByStore <- bind_rows(salesByStore, tempOnline)
+
+################
+#Sales by store#
+################
+
+
+writeData(store_wb, sheet = "Sales", x = tot_sales)
+#writeData(store_wb, sheet = "Pivot", x = sales_pvt)
+writeData(store_wb, sheet = "Raw Data", x = raw_store)
+writeData(store_wb, sheet = "Inventory", x = inventory)
+writeData(store_wb, sheet = "Store Data", x = salesByStore)
+writeData(store_wb, sheet = "SKU Inv Monthly", x = inv_tot)
+writeData(store_wb, sheet = "SKU Monthly", x = tot_sales_sku)
+writeData(store_wb, sheet = "SKU by Store", x = skuByStoreClean)
+writeData(store_wb, sheet = "SQL Upload", x = sqlClean)
+```
+
+#Prep Inventory Variables for SQL Upload
+```{r}
+#create column index
+cols.num.inv <- c(1,5,7:14)
+#prep for merge, make sure columns have same class
+inventory[cols.num.inv] <- sapply(inventory[cols.num.inv],as.numeric)
+inventory%>%
+  group_by(`WM Week`, `Brand Desc`, `Vendor Stk Nbr`, `Item Nbr`, `Item Flags`, `UPC`)%>%
+  summarise()
+```
+
+#Create SKU Data for GTM Tracker
+```{r}
+#create in store inv
+inventory%>%
+  rename(WMT = `Item Nbr`)%>%
+  group_by(WMT)%>%
+  summarise(`Curr Str On Hand Qty` = sum(`Curr Str On Hand Qty`))->store_oh
+#check for missing SKUs
+missingSkus <- c()
+for(line in store_oh$WMT){
+  if(line %in% store_inv_sku$WMT){
+    #nothing
+  }else{
+    missingSkus <- c(missingSkus, line)
+    newSku <- data.frame()
+  }
+}
+#
+for (value in missingSkus) {
+    store_oh%>%
+        filter(WMT == value)%>%
+        dplyr::select(WMT)-> skuSub
+    newSku <- bind_rows(newSku, skuSub)
+}
+
+if(length(missingSkus) > 0){
+  write.xlsx(newSku, here("data", "newStoreSKU.xlsx", sep = ""), overwrite = TRUE)
+  {stop(length(missingSkus), " new SKU values! Copy new SKUs to store_inv_sku.xlsx and rerun code")}
+}
+
+#merge with WMT# inv reference data
+store_inv_sku$WMT <- as.character(store_inv_sku$WMT)
+store_inv <- left_join(store_inv_sku, store_oh, by = "WMT")
+#Replace NA with 0
+store_inv$`Curr Str On Hand Qty`[is.na(store_inv$`Curr Str On Hand Qty`)] <- 0
+
+#repeat for online inventory
+online%>%
+  rename(WMT = `WM_ITEM_NUMBER (Dotcom)`)%>%
+  rename(`Curr Str On Hand Qty` = OH)%>%
+  select(WMT, `Curr Str On Hand Qty`)->online_oh
+online_oh$WMT <- gsub("[[:space:]]", "", online_oh$WMT)
+online_oh$WMT <- as.numeric(online_oh$WMT)
+
+#check for missing SKUs
+missingSkus <- c()
+for(line in online_oh$WMT){
+  if(line %in% online_inv_sku$WMT){
+    #nothing
+  }else{
+    missingSkus <- c(missingSkus, line)
+    newSku <- data.frame()
+  }
+}
+#
+for (value in missingSkus) {
+    online_oh%>%
+        filter(WMT == value)%>%
+        dplyr::select(WMT)-> skuSub
+    newSku <- bind_rows(newSku, skuSub)
+}
+
+if(length(missingSkus) > 0){
+  write.xlsx(newSku, here("data", "newInvSKU.xlsx", sep = ""), overwrite = TRUE)
+  {stop(length(missingSkus), " new SKU values! Copy new SKUs to online_inv_sku.xlsx from newInvSKU.xlsx and rerun code")}
+}
+
+online_inv <- left_join(online_inv_sku, online_oh, by = "WMT")
+
+online_inv$`Curr Str On Hand Qty`[is.na(online_inv$`Curr Str On Hand Qty`)] <- 0
+#merge data
+online_inv$WMT <- as.character(online_inv$WMT)
+inv_tot <- bind_rows(store_inv, online_inv)
+```
+
+#Create Monthly SKU Data
+```{r}
+#create gross_unit by WMT# data
+tot_sales%>%
+  mutate(gross_unit = `POS Qty`+`Total Customer Item Return`)%>%
+  rename(WMT = `Item Nbr`)%>%
+  select(WMT, gross_unit, `Store Nbr`) -> sku_month
+
+for (storeType in c(0,99999)) {
+  checkSku <- filter(sku_month, `Store Nbr` == storeType)
+  
+  #check for missing SKUs
+  missingSkus <- c()
+  for(line in checkSku$WMT){
+    line <- str_trim(line)
+    if(line %in% store_sales_sku$WMT){
+      #nothing
+    }else{
+      missingSkus <- c(missingSkus, line)
+      newSku <- data.frame()
+    }
+  }
+  #
+  for (value in missingSkus) {
+      checkSku%>%
+          filter(WMT == value)-> skuSub
+      newSku <- bind_rows(newSku, skuSub)
+}
+
+  if(length(missingSkus) > 0){
+    write.xlsx(newSku, here("data", "newSalesSKU.xlsx", sep = ""), overwrite = TRUE)
+    {stop(length(missingSkus), " new SKU values in store ", storeType, "! Copy new SKUs from newSalesSKU.xlsx to store_sales_sku.xlsx and rerun code")}
+}
+}
+
+store_sales_sku$WMT <- as.character(store_sales_sku$WMT)
+#merge with WMT# sales reference data
+tot_sales_sku <- left_join(store_sales_sku, sku_month, by = "WMT")
+#Replace NA with 0
+tot_sales_sku$gross_unit[is.na(tot_sales_sku$gross_unit)] <- 0
+```
+
+#Check Totals
+```{r}
+totSalesCheck <- salesCheck + sum(online$`Net Units`) + sum(online$`Return Units`)
+tot_salesGross <- sum(tot_sales$`POS Qty`)+sum(tot_sales$`Total Customer Item Return`)
+if(tot_salesGross != totSalesCheck) stop("error: tot_sales gross units ", tot_salesGross, " but should be ", totSalesCheck)
+
+if(sum(salesByStore$Gross_Unit) != totSalesCheck) stop("Error: salesByStore gross units:", sum(salesByStore$Gross_Unit), " but should be ", totSalesCheck)
+
+if(sum(tot_sales_sku$gross_unit) != totSalesCheck) stop("Error: tot_sales_sku gross units: ", sum(tot_sales_sku$gross_unit), " but should be ", totSalesCheck)
+
+if(sum(skuByStoreClean$Gross_Unit) != totSalesCheck) stop("Error: skuByStoreClean gross units: ", sum(skuByStoreClean$Gross_Unit), " but should be ", totSalesCheck)
+
+sqlGross <- sum(sqlClean$Net_Unit)+sum(sqlClean$Return_Unit)
+if(sqlGross != totSalesCheck) stop("Error: sqlClean gross unit total: ", sqlGross, " but should be ", totSalesCheck)
+```
+
+#Save Merged Output
+```{r}
+# Create a blank workbook
+store_wb <- createWorkbook()
+
+# Add some sheets to the workbook
+addWorksheet(store_wb, "Sales")
+#addWorksheet(store_wb, "Pivot")
+addWorksheet(store_wb, "Raw Data")
+addWorksheet(store_wb, "Inventory")
+addWorksheet(store_wb, "Store Data")
+addWorksheet(store_wb, "SKU Inv Monthly")
+addWorksheet(store_wb, "SKU Monthly")
+addWorksheet(store_wb, "SKU by Store")
+addWorksheet(store_wb, "SQL Upload")
+
+
+# Write the data to the sheets
+writeData(store_wb, sheet = "Sales", x = tot_sales)
+#writeData(store_wb, sheet = "Pivot", x = sales_pvt)
+writeData(store_wb, sheet = "Raw Data", x = raw_store)
+writeData(store_wb, sheet = "Inventory", x = inventory)
+writeData(store_wb, sheet = "Store Data", x = salesByStore)
+writeData(store_wb, sheet = "SKU Inv Monthly", x = inv_tot)
+writeData(store_wb, sheet = "SKU Monthly", x = tot_sales_sku)
+writeData(store_wb, sheet = "SKU by Store", x = skuByStoreClean)
+writeData(store_wb, sheet = "SQL Upload", x = sqlClean)
+
+# Export the file
+saveWorkbook(store_wb, here("results", params$year, month, paste("Week", params$wk, sep = ""), paste("Google Weekly Recap (Stores) - Week ", params$wk, ".xlsx", sep = "")), overwrite = TRUE)
+```
+
+#Save Online Output
+```{r}
+# Create a blank workbook
+online_wb <- createWorkbook()
+
+# Add some sheets to the workbook
+addWorksheet(online_wb, "Chromebooks")
+addWorksheet(online_wb, "Sales")
+
+
+# Write the data to the sheets
+writeData(online_wb, sheet = "Chromebooks", x = online)
+writeData(online_wb, sheet = "Sales", x = online_clean)
+
+# Export the file
+saveWorkbook(online_wb, here("results", params$year, month, paste("Week", params$wk, sep = ""), paste("Google Weekly Recap (dotcom) - Week ", params$wk, ".xlsx", sep = "")), overwrite = TRUE)
+```
+
+
+#Google Sheet Uploading
+###Weekly Sales (Monthly Tracker)
+
+```{r}
+#Merge Online w/SKU Level Sales by store
+onlineTransformed%>%
+  rename(`Item Nbr` = `WM_ITEM_NUMBER (Dotcom)`)%>%
+  rename(UPC = WUPC)%>%
+  rename(Net_Unit = `Net Units`)%>%
+  rename(Net_Sales = `POS Sales`)%>%
+  rename(Return_Unit = `Return Units`)-> onlineSalesBySku
+
+onlineSalesBySku%>%
+  mutate(Gross_Unit = Net_Unit+Return_Unit)%>%
+  mutate(NetASP = Net_Sales/Net_Unit)%>%
+  mutate(GrossPOS = Gross_Unit*NetASP) -> onlineSalesBySku
+
+onlineSalesBySku$GrossPOS[is.na(onlineSalesBySku$GrossPOS)] <- 0
+onlineSalesBySku$GrossPOS[is.infinite(onlineSalesBySku$GrossPOS)] <- 0
+
+onlineSalesBySku <- dplyr::select(onlineSalesBySku, `WM Week`, WeekEnd, `Store Nbr`, `Item Nbr`, UPC, Net_Unit, Net_Sales, Gross_Unit, Return_Unit,`Curr Str On Hand Qty`, `Curr Instock %`, `Curr Str On Order Qty`, `Curr Str In Transit Qty`, GrossPOS)
+
+onlineSalesBySku$`WM Week` <- as.character(onlineSalesBySku$`WM Week`)
+onlineSalesBySku$`Store Nbr` <- as.character(onlineSalesBySku$`Store Nbr`)
+
+skuByStoreBind <- dplyr::select(skuByStore, -WeekStart)
+weeklySales <- bind_rows(skuByStoreBind, onlineSalesBySku)
+skuLevelStorelist <- dplyr::select(storelist, StoreNumber, PilotStoreType, Region, Market, Pair)
+weeklySales <- left_join(weeklySales, skuLevelStorelist, by = c("Store Nbr" = "StoreNumber"))
+
+#Upload To Monthly Tracker
+lastWeekData <- read_sheet(params$monthlyTracker, "Weekly Sales")
+if(is.na(unique(lastWeekData$`WM Week`))){
+  print("Sheet is empty")}else if (unique(lastWeekData$`WM Week`) != this_week$`WM Week`){
+    write_sheet(lastWeekData, params$monthlyTracker, "Previous Week Sales")
+}
+write_sheet(weeklySales, params$monthlyTracker, "Weekly Sales")
+sheet_append(params$monthlyTracker, weeklySales, sheet = "Current Month Sales")
+```
+
+###Pilot Level Sales Tracker
+```{r}
+#create df to merge with Sales by Store
+online_clean%>%
+  mutate(GrossUnit = `POS Qty`+`Total Customer Item Return`)%>%
+  mutate(NetASP = `POS Sales`/`POS Qty`)%>%
+  mutate(GrossPOS = GrossUnit*NetASP)-> onlineSum
+
+onlineSum$GrossPOS[is.na(onlineSum$GrossPOS)] <- 0
+onlineSum$GrossPOS[is.infinite(onlineSum$GrossPOS)] <- 0
+    
+onlineSum%>%
+  group_by(`WM Week`, WeekEnd, `Store Nbr`)%>%
+  summarise(POS_Unit = sum(`POS Qty`), POS_Sales = sum(`POS Sales`), Gross_Unit = sum(`POS Qty`,`Total Customer Item Return`), Gross_POS = sum(GrossPOS), Return_Unit = sum(`Total Customer Item Return`)) -> onlineSum
+
+onlineSum$`WM Week` <- as.character(onlineSum$`WM Week`)
+onlineSum$`Store Nbr` <- as.character(onlineSum$`Store Nbr`)
+storeSalesClean <- bind_rows(salesByStore, onlineSum)
+
+storelistTrim <- dplyr::select(storelist, StoreNumber, StoreType...12, PilotStoreType, Market, Region, Pair)
+storeSalesClean <- left_join(storeSalesClean, storelistTrim, by = c("Store Nbr" = "StoreNumber"))
+
+#Upload to pilot level sales tracker
+liveStoreLevelData <- read_sheet("https://docs.google.com/spreadsheets/d/1K4pMJXAjONXEmAJbN55BHzyU2BQuVWm6hy4Rr0p1ANA/edit#gid=415770348", "Data")
+nonCurrentWeek <- filter(liveStoreLevelData, `WM Week` != this_week$`WM Week`)
+nonCurrentWeek$`WM Week` <- as.character(nonCurrentWeek$`WM Week`)
+nonCurrentWeek$`Store Nbr` <- as.character(nonCurrentWeek$`Store Nbr`)
+updatedAllWeeks <- bind_rows(nonCurrentWeek, storeSalesClean)
+write_sheet(updatedAllWeeks, "https://docs.google.com/spreadsheets/d/1K4pMJXAjONXEmAJbN55BHzyU2BQuVWm6hy4Rr0p1ANA/edit#gid=415770348", "Data")
+```
+
+
+
+#Manual Input Online Only Calculations
+```{r}
+online$`POS Sales`[is.na(online$`POS Sales`)] <- 0
+online%>%
+  summarise(`Sum Net Units` = sum(`Net Units`), `Sum Return Units` = sum(`Return Units`), `Net Sales` = sum(`POS Sales`))%>%
+  knitr::kable()
+```
+
+#Slide 5 Total ASP
+```{r}
+#calculate necessary values
+tot_sales%>%
+  mutate(`Gross Unit` = sum(`POS Qty`+`Total Customer Item Return`))%>%
+  mutate(`NetASP` = `POS Sales`/`POS Qty`)%>%
+  mutate(`GrossPOS Sales` = `Gross Unit`*`NetASP`)-> asp
+
+#replace missing values with zero
+asp$`Gross Unit`[is.na(asp$`Gross Unit`)] <- 0
+asp$NetASP[is.na(asp$NetASP)] <- 0
+asp$`GrossPOS Sales`[is.na(asp$`GrossPOS Sales`)] <- 0
+asp$`Gross Unit`[is.infinite(asp$`Gross Unit`)] <- 0
+asp$NetASP[is.infinite(asp$NetASP)] <- 0
+asp$`GrossPOS Sales`[is.infinite(asp$`GrossPOS Sales`)] <- 0
+
+#return ASP
+round(sum(asp$`GrossPOS Sales`)/sum(asp$`Gross Unit`))
+```
+#Online ASP
+```{r}
+#calculate necessary values
+online_clean%>%
+  mutate(`Gross Unit` = (`POS Qty`+`Total Customer Item Return`))%>%
+  mutate(`NetASP` = `POS Sales`/`POS Qty`)%>%
+  mutate(`GrossPOS Sales` = `Gross Unit`*`NetASP`)-> asp_online
+
+#replace missing values with zero
+asp_online$`Gross Unit`[is.na(asp_online$`Gross Unit`)] <- 0
+asp_online$NetASP[is.na(asp_online$NetASP)] <- 0
+asp_online$`GrossPOS Sales`[is.na(asp_online$`GrossPOS Sales`)] <- 0
+
+#return ASP
+round(sum(asp_online$`GrossPOS Sales`)/sum(asp_online$`Gross Unit`))
+```
+
+#In Store ASP
+```{r}
+#calculate necessary values
+sales_pvt%>%
+  mutate(`Gross Unit` = sum(`POS Qty`+`Total Customer Item Return`))%>%
+  mutate(`NetASP` = `POS Sales`/`POS Qty`)%>%
+  mutate(`GrossPOS Sales` = `Gross Unit`*`NetASP`)-> inStoreAsp
+
+#replace missing values with zero
+inStoreAsp$`Gross Unit`[is.na(inStoreAsp$`Gross Unit`)] <- 0
+inStoreAsp$NetASP[is.na(inStoreAsp$NetASP)] <- 0
+inStoreAsp$`GrossPOS Sales`[is.na(inStoreAsp$`GrossPOS Sales`)] <- 0
+inStoreAsp$`Gross Unit`[is.infinite(inStoreAsp$`Gross Unit`)] <- 0
+inStoreAsp$NetASP[is.infinite(inStoreAsp$NetASP)] <- 0
+inStoreAsp$`GrossPOS Sales`[is.infinite(inStoreAsp$`GrossPOS Sales`)] <- 0
+
+#return ASP
+round(sum(inStoreAsp$`GrossPOS Sales`)/sum(inStoreAsp$`Gross Unit`))
+```
+
+#Build Online Monthly Dataframe
+```{r}
+#Build master dataset to be added onto each month
+if (file.exists(here("results", params$year, month, "month-online-clean.rda")) == TRUE){
+  #load master data
+  load(file = here::here("results", params$year, month, "month-online-clean.rda"))
+  #add current week to monthly master data
+  base_online <- bind_rows(base_online, online_clean)
+  save(base_online, file = here::here("results", params$year, month, "month-online-clean.rda"))
+}else{
+  base_online <- online_clean
+save(base_online, file = here::here("results", params$year, month, "month-online-clean.rda"))
+}
+```
+
+#Build Total Sales Monthly Dataframe
+```{r}
+#Build master dataset to be added onto each month
+if (file.exists(here("results", params$year, month, "month-store-clean.rda")) == TRUE){
+  #load master data
+  load(file = here::here("results", params$year, month, "month-store-clean.rda"))
+  #add current week to monthly master data
+  base_store <- bind_rows(base_store, tot_sales)
+  save(base_store, file = here::here("results", params$year, month, "month-store-clean.rda"))
+}else{
+base_store <- tot_sales
+save(base_store, file = here::here("results", params$year, month, "month-store-clean.rda"))
+}
+```
+
+#Top Selling SKUs (Weekly)
+```{r}
+sku_ref <- read_excel(here("data/base_data/sku_ref.xlsx"))
+
+sales_pvt%>%
+  mutate(gross_unit = `Total Customer Item Return` + `POS Qty`)%>%
+  select(`Item Nbr`, gross_unit)-> top_sku
+
+top_sku_clean <- inner_join(top_sku, sku_ref)
+```
+
+
+

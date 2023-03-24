@@ -1,0 +1,14 @@
+"0","#Build master dataset to be added onto each month"
+"0","if (file.exists(here(""results"", params$year, month, ""month-online-clean.rda"")) == TRUE){"
+"0","  #load master data"
+"0","  load(file = here::here(""results"", params$year, month, ""month-online-clean.rda""))"
+"0","  #add current week to monthly master data"
+"0","  base_online <- bind_rows(base_online, online_clean)"
+"0","  save(base_online, file = here::here(""results"", params$year, month, ""month-online-clean.rda""))"
+"0","}else{"
+"0","  base_online <- online_clean"
+"0","save(base_online, file = here::here(""results"", params$year, month, ""month-online-clean.rda""))"
+"0","}"
+"2","Error: Can't combine `..1$Curr Instock %` <character> and `..2$Curr Instock %` <double>.
+[90mRun `rlang::last_error()` to see where the error occurred.[39m
+"
