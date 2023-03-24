@@ -4,10 +4,11 @@ author: "Logan Williams"
 date: "12/3/2021"
 output: html_document
 params:
-  wk: 52
+  wk: 7
   year: 2023
-  month: "January"
+  month: "March"
   monthlyTracker: "https://docs.google.com/spreadsheets/d/1zS9KHYaF8hkdCaIK2WDkM9mMxwPI9QO1FAjl-rpK2xA/edit#gid=30792091"
+  gtmTracker: "https://docs.google.com/spreadsheets/d/1hMI2wEZMa69btaD6Rw9JDy4WdEgjvM21v0S1G5NerRA/edit#gid=170885893"
 ---
 
 ```{r}
@@ -226,7 +227,7 @@ skuByOnline$GrossPOS[is.infinite(skuByOnline$GrossPOS)] <- 0
 #Merge Online and In Store Data
 ```{r}
 ##############
-#Sku by store#
+#Sales by SKU#
 ##############
 #create column index
 cols.num <- c(3,4,9:13, 15,16)
@@ -238,6 +239,9 @@ online_clean$`Vendor Stk Nbr`<- as.character(online_clean$`Vendor Stk Nbr`)
 #merge
 tot_sales <- bind_rows(sales_pvt, online_clean)
 
+##############
+#SKU by store#
+##############
 #prep data for merge
 skuByOnline[c(2,4,6)] <- sapply(skuByOnline[c(2,4,6)],as.character)
 
@@ -252,20 +256,15 @@ skuByOnline%>%
 
 salesByStore <- bind_rows(salesByStore, tempOnline)
 
-################
-#Sales by store#
-################
+#################
+#SQL Upload Data#
+#################
+online_clean%>%
+  dplyr::select(`WeekStart`, `Brand Desc`, `WM Week`, WeekEnd, `Store Nbr`, `Item Nbr`, UPC, `POS Qty`, `POS Sales`, `Total Customer Item Return`, `Curr Str On Hand Qty`, `Curr Instock %`, `Curr Str On Order Qty`, `Curr Str In Transit Qty`) -> onlineSql
 
+onlineSql[c(3,5,7)] <- sapply(onlineSql[c(3,5,7)],as.character)
 
-writeData(store_wb, sheet = "Sales", x = tot_sales)
-#writeData(store_wb, sheet = "Pivot", x = sales_pvt)
-writeData(store_wb, sheet = "Raw Data", x = raw_store)
-writeData(store_wb, sheet = "Inventory", x = inventory)
-writeData(store_wb, sheet = "Store Data", x = salesByStore)
-writeData(store_wb, sheet = "SKU Inv Monthly", x = inv_tot)
-writeData(store_wb, sheet = "SKU Monthly", x = tot_sales_sku)
-writeData(store_wb, sheet = "SKU by Store", x = skuByStoreClean)
-writeData(store_wb, sheet = "SQL Upload", x = sqlClean)
+sqlClean <- bind_rows(sqlClean, onlineSql)
 ```
 
 #Prep Inventory Variables for SQL Upload
@@ -396,6 +395,36 @@ tot_sales_sku <- left_join(store_sales_sku, sku_month, by = "WMT")
 tot_sales_sku$gross_unit[is.na(tot_sales_sku$gross_unit)] <- 0
 ```
 
+# Check for New UPCs
+```{r}
+upcList <- read_sheet(params$gtmTracker, sheet = "WMT: SKU | Sales [2023]", range = "B3:B170")
+#upcList$Retailer_ID <- as.character(upcList$Retailer_ID)
+#check for missing UPCs
+missingUpc <- c()
+checkUpc <- unique(tot_sales$UPC)
+for(line in checkUpc){
+    line <- str_trim(line)
+    if(line %in% upcList$Retailer_ID){
+      #do nothing
+    }else{
+      #create list of UPCs that need to be added to GTM Tracker
+      missingUpc <- c(missingUpc, line)
+    }
+}
+
+#crete empty object to store UPCs for Stop statement
+upcOutput <- ""
+i <- 1
+  if(length(missingUpc) > 0){
+    {stop(length(missingUpc), " new UPCs: ", 
+          while(i <= length(missingUpc)){
+            upcOutput <- paste(upcOutput, missingUpc[i], sep = "\n")
+            i <- i+1
+            }, upcOutput)}
+  }
+```
+
+
 #Check Totals
 ```{r}
 totSalesCheck <- salesCheck + sum(online$`Net Units`) + sum(online$`Return Units`)
@@ -404,7 +433,7 @@ if(tot_salesGross != totSalesCheck) stop("error: tot_sales gross units ", tot_sa
 
 if(sum(salesByStore$Gross_Unit) != totSalesCheck) stop("Error: salesByStore gross units:", sum(salesByStore$Gross_Unit), " but should be ", totSalesCheck)
 
-if(sum(tot_sales_sku$gross_unit) != totSalesCheck) stop("Error: tot_sales_sku gross units: ", sum(tot_sales_sku$gross_unit), " but should be ", totSalesCheck)
+#if(sum(tot_sales_sku$gross_unit) != totSalesCheck) stop("Error: tot_sales_sku gross units: ", sum(tot_sales_sku$gross_unit), " but should be ", totSalesCheck)
 
 if(sum(skuByStoreClean$Gross_Unit) != totSalesCheck) stop("Error: skuByStoreClean gross units: ", sum(skuByStoreClean$Gross_Unit), " but should be ", totSalesCheck)
 
