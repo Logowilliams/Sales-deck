@@ -365,6 +365,13 @@ writeData(online_wb, sheet = "Sales", x = online_clean)
 saveWorkbook(online_wb, here("results", params$year, month, paste("Week", params$wk, sep = ""), paste("Google Weekly Recap (dotcom) - Week ", params$wk, ".xlsx", sep = "")), overwrite = TRUE)
 ```
 
+```{r}
+#Everything below is code in progress
+stop("Code finished executing. Workbooks successfully saved")
+```
+
+
+
 
 #Google Sheet Uploading
 ###Weekly Sales (Monthly Tracker)
@@ -396,6 +403,9 @@ weeklySales <- bind_rows(skuByStoreBind, onlineSalesBySku)
 skuLevelStorelist <- dplyr::select(storelist, StoreNumber, PilotStoreType, Region, Market, Pair)
 weeklySales <- left_join(weeklySales, skuLevelStorelist, by = c("Store Nbr" = "StoreNumber"))
 
+tot_sales%>%
+  dplyr::select(`WM Week`, `Brand Desc`, `Vendor Stk Nbr`, `Item Nbr`, `Item Flags`, UPC, `POS Qty`, `POS Sales`, `Total Customer Item Return`, `WeekEnd`) -> salesBySkuUpload
+
 #Upload To Monthly Tracker
 lastWeekData <- read_sheet(params$monthlyTracker, "Weekly Sales")
 if(is.na(unique(lastWeekData$`WM Week`))){
@@ -405,6 +415,26 @@ if(is.na(unique(lastWeekData$`WM Week`))){
 write_sheet(weeklySales, params$monthlyTracker, "Weekly Sales")
 sheet_append(params$monthlyTracker, weeklySales, sheet = "Current Month Sales")
 ```
+
+# SalesBySKU Tab
+```{r}
+
+#Upload SKU level data
+skuLevelSales <- read_sheet(params$monthlyTracker, "SalesBySKU")
+if(unique(salesBySkuUpload$`WM Week`) %in% skuLevelSales$`WM Week`){
+  skuLevelSales <- filter(skuLevelSales, `WM Week` != unique(salesBySkuUpload$`WM Week`))
+  skuLevelSales <- bind_rows(skuLevelSales, salesBySkuUpload)
+}else{
+  
+}
+if(is.na(unique(lastWeekData$`WM Week`))){
+  print("Sheet is empty")}else if (unique(lastWeekData$`WM Week`) != this_week$`WM Week`){
+    write_sheet(lastWeekData, params$monthlyTracker, "Previous Week Sales")
+}
+write_sheet(weeklySales, params$monthlyTracker, "Weekly Sales")
+sheet_append(params$monthlyTracker, weeklySales, sheet = "Current Month Sales")
+```
+
 
 ###Pilot Level Sales Tracker
 ```{r}
