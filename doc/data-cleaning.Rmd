@@ -11,7 +11,7 @@ params:
   gtmTracker: "https://docs.google.com/spreadsheets/d/1hMI2wEZMa69btaD6Rw9JDy4WdEgjvM21v0S1G5NerRA/edit#gid=170885893"
 ---
 
-```{r}
+```{r, warning = false}
 #load dependencies
 library(openxlsx)   #tools for saving xls data
 library(readxl)     #load xlsx data
@@ -40,14 +40,9 @@ if(params$wk < 10){
 
 #get current month for file paths
 month <- params$month
-
-#load UPC data for monthly SKU tracker
-online_inv_sku <- read_excel(here("data/base_data/online_inv_sku.xlsx"))
-store_inv_sku <- read_excel(here("data/base_data/store_inv_sku.xlsx"))
-store_sales_sku <- read_excel(here("data/base_data/store_sales_sku.xlsx"))
 ```
 
-```{r}
+```{r, warning=false}
 # Create results folder path for current week
 here::here()
 dir.create(getwd())
@@ -158,7 +153,6 @@ sqlClean$WeekEnd <- as.Date(sqlClean$WeekEnd)
 
 #Aggregate Sales by Store
 ```{r}
-#create pivot table
 sales%>%
   mutate(WeekEnd = this_week$WeekEnd, .after = `WM Week`) -> salesByStore
 
@@ -166,6 +160,7 @@ skuByStore%>%
   group_by(`WM Week`, WeekEnd, `Store Nbr`)%>%
   summarise(POS_Unit = sum(Net_Unit), POS_Sales = sum(Net_Sales), Gross_Unit = sum(Gross_Unit), Gross_POS = sum(GrossPOS), Return_Unit = sum(Return_Unit))->salesByStore
 ```
+
 #Check Totals
 ```{r}
 salesCheck <- sum(sales$`POS Qty`)+sum(sales$`Total Customer Item Return`)
@@ -173,7 +168,6 @@ if(sum(salesByStore$Gross_Unit) != salesCheck) stop("Error in salesByStore gross
 if(sum(sales_pvt$`POS Qty`)+sum(sales_pvt$`Total Customer Item Return`) != salesCheck) stop("Error in sales_pvt gross unit total")
 if(sum(skuByStore$Gross_Unit) != salesCheck) stop("Error in skuByStore gross unit total")
 ```
-
 
 #Online Data
 ```{r}
@@ -252,7 +246,10 @@ skuByStoreClean <- bind_rows(skuByStore,skuByOnline)
 #Sales by store#
 ################
 skuByOnline%>%
-  dplyr::select(`WM Week`, `WeekEnd`, `Store Nbr`, Net_Unit, Net_Sales, Gross_Unit, GrossPOS, Return_Unit) -> tempOnline
+  rename(POS_Unit = Net_Unit)%>%
+  rename(POS_Sales = Net_Sales)%>%
+  rename(Gross_POS = GrossPOS)%>%
+  dplyr::select(`WM Week`, `WeekEnd`, `Store Nbr`, POS_Unit, POS_Sales, Gross_Unit, Gross_POS, Return_Unit) -> tempOnline
 
 salesByStore <- bind_rows(salesByStore, tempOnline)
 
@@ -260,7 +257,10 @@ salesByStore <- bind_rows(salesByStore, tempOnline)
 #SQL Upload Data#
 #################
 online_clean%>%
-  dplyr::select(`WeekStart`, `Brand Desc`, `WM Week`, WeekEnd, `Store Nbr`, `Item Nbr`, UPC, `POS Qty`, `POS Sales`, `Total Customer Item Return`, `Curr Str On Hand Qty`, `Curr Instock %`, `Curr Str On Order Qty`, `Curr Str In Transit Qty`) -> onlineSql
+  rename(Net_Unit = `POS Qty`)%>%
+  rename(Net_Sales = `POS Sales`)%>%
+  rename(Return_Unit = `Total Customer Item Return`)%>%
+  dplyr::select(`WeekStart`, `Brand Desc`, `WM Week`, WeekEnd, `Store Nbr`, `Item Nbr`, UPC, Net_Unit, Net_Sales, Return_Unit, `Curr Str On Hand Qty`, `Curr Instock %`, `Curr Str On Order Qty`, `Curr Str In Transit Qty`) -> onlineSql
 
 onlineSql[c(3,5,7)] <- sapply(onlineSql[c(3,5,7)],as.character)
 
@@ -278,127 +278,10 @@ inventory%>%
   summarise()
 ```
 
-#Create SKU Data for GTM Tracker
-```{r}
-#create in store inv
-inventory%>%
-  rename(WMT = `Item Nbr`)%>%
-  group_by(WMT)%>%
-  summarise(`Curr Str On Hand Qty` = sum(`Curr Str On Hand Qty`))->store_oh
-#check for missing SKUs
-missingSkus <- c()
-for(line in store_oh$WMT){
-  if(line %in% store_inv_sku$WMT){
-    #nothing
-  }else{
-    missingSkus <- c(missingSkus, line)
-    newSku <- data.frame()
-  }
-}
-#
-for (value in missingSkus) {
-    store_oh%>%
-        filter(WMT == value)%>%
-        dplyr::select(WMT)-> skuSub
-    newSku <- bind_rows(newSku, skuSub)
-}
-
-if(length(missingSkus) > 0){
-  write.xlsx(newSku, here("data", "newStoreSKU.xlsx", sep = ""), overwrite = TRUE)
-  {stop(length(missingSkus), " new SKU values! Copy new SKUs to store_inv_sku.xlsx and rerun code")}
-}
-
-#merge with WMT# inv reference data
-store_inv_sku$WMT <- as.character(store_inv_sku$WMT)
-store_inv <- left_join(store_inv_sku, store_oh, by = "WMT")
-#Replace NA with 0
-store_inv$`Curr Str On Hand Qty`[is.na(store_inv$`Curr Str On Hand Qty`)] <- 0
-
-#repeat for online inventory
-online%>%
-  rename(WMT = `WM_ITEM_NUMBER (Dotcom)`)%>%
-  rename(`Curr Str On Hand Qty` = OH)%>%
-  select(WMT, `Curr Str On Hand Qty`)->online_oh
-online_oh$WMT <- gsub("[[:space:]]", "", online_oh$WMT)
-online_oh$WMT <- as.numeric(online_oh$WMT)
-
-#check for missing SKUs
-missingSkus <- c()
-for(line in online_oh$WMT){
-  if(line %in% online_inv_sku$WMT){
-    #nothing
-  }else{
-    missingSkus <- c(missingSkus, line)
-    newSku <- data.frame()
-  }
-}
-#
-for (value in missingSkus) {
-    online_oh%>%
-        filter(WMT == value)%>%
-        dplyr::select(WMT)-> skuSub
-    newSku <- bind_rows(newSku, skuSub)
-}
-
-if(length(missingSkus) > 0){
-  write.xlsx(newSku, here("data", "newInvSKU.xlsx", sep = ""), overwrite = TRUE)
-  {stop(length(missingSkus), " new SKU values! Copy new SKUs to online_inv_sku.xlsx from newInvSKU.xlsx and rerun code")}
-}
-
-online_inv <- left_join(online_inv_sku, online_oh, by = "WMT")
-
-online_inv$`Curr Str On Hand Qty`[is.na(online_inv$`Curr Str On Hand Qty`)] <- 0
-#merge data
-online_inv$WMT <- as.character(online_inv$WMT)
-inv_tot <- bind_rows(store_inv, online_inv)
-```
-
-#Create Monthly SKU Data
-```{r}
-#create gross_unit by WMT# data
-tot_sales%>%
-  mutate(gross_unit = `POS Qty`+`Total Customer Item Return`)%>%
-  rename(WMT = `Item Nbr`)%>%
-  select(WMT, gross_unit, `Store Nbr`) -> sku_month
-
-for (storeType in c(0,99999)) {
-  checkSku <- filter(sku_month, `Store Nbr` == storeType)
-  
-  #check for missing SKUs
-  missingSkus <- c()
-  for(line in checkSku$WMT){
-    line <- str_trim(line)
-    if(line %in% store_sales_sku$WMT){
-      #nothing
-    }else{
-      missingSkus <- c(missingSkus, line)
-      newSku <- data.frame()
-    }
-  }
-  #
-  for (value in missingSkus) {
-      checkSku%>%
-          filter(WMT == value)-> skuSub
-      newSku <- bind_rows(newSku, skuSub)
-}
-
-  if(length(missingSkus) > 0){
-    write.xlsx(newSku, here("data", "newSalesSKU.xlsx", sep = ""), overwrite = TRUE)
-    {stop(length(missingSkus), " new SKU values in store ", storeType, "! Copy new SKUs from newSalesSKU.xlsx to store_sales_sku.xlsx and rerun code")}
-}
-}
-
-store_sales_sku$WMT <- as.character(store_sales_sku$WMT)
-#merge with WMT# sales reference data
-tot_sales_sku <- left_join(store_sales_sku, sku_month, by = "WMT")
-#Replace NA with 0
-tot_sales_sku$gross_unit[is.na(tot_sales_sku$gross_unit)] <- 0
-```
-
 # Check for New UPCs
 ```{r}
 upcList <- read_sheet(params$gtmTracker, sheet = "WMT: SKU | Sales [2023]", range = "B3:B170")
-#upcList$Retailer_ID <- as.character(upcList$Retailer_ID)
+
 #check for missing UPCs
 missingUpc <- c()
 checkUpc <- unique(tot_sales$UPC)
@@ -424,7 +307,6 @@ i <- 1
   }
 ```
 
-
 #Check Totals
 ```{r}
 totSalesCheck <- salesCheck + sum(online$`Net Units`) + sum(online$`Return Units`)
@@ -432,8 +314,6 @@ tot_salesGross <- sum(tot_sales$`POS Qty`)+sum(tot_sales$`Total Customer Item Re
 if(tot_salesGross != totSalesCheck) stop("error: tot_sales gross units ", tot_salesGross, " but should be ", totSalesCheck)
 
 if(sum(salesByStore$Gross_Unit) != totSalesCheck) stop("Error: salesByStore gross units:", sum(salesByStore$Gross_Unit), " but should be ", totSalesCheck)
-
-#if(sum(tot_sales_sku$gross_unit) != totSalesCheck) stop("Error: tot_sales_sku gross units: ", sum(tot_sales_sku$gross_unit), " but should be ", totSalesCheck)
 
 if(sum(skuByStoreClean$Gross_Unit) != totSalesCheck) stop("Error: skuByStoreClean gross units: ", sum(skuByStoreClean$Gross_Unit), " but should be ", totSalesCheck)
 
@@ -448,25 +328,19 @@ store_wb <- createWorkbook()
 
 # Add some sheets to the workbook
 addWorksheet(store_wb, "Sales")
-#addWorksheet(store_wb, "Pivot")
 addWorksheet(store_wb, "Raw Data")
 addWorksheet(store_wb, "Inventory")
 addWorksheet(store_wb, "Store Data")
-addWorksheet(store_wb, "SKU Inv Monthly")
-addWorksheet(store_wb, "SKU Monthly")
 addWorksheet(store_wb, "SKU by Store")
 addWorksheet(store_wb, "SQL Upload")
 
 
 # Write the data to the sheets
 writeData(store_wb, sheet = "Sales", x = tot_sales)
-#writeData(store_wb, sheet = "Pivot", x = sales_pvt)
 writeData(store_wb, sheet = "Raw Data", x = raw_store)
 writeData(store_wb, sheet = "Inventory", x = inventory)
 writeData(store_wb, sheet = "Store Data", x = salesByStore)
 writeData(store_wb, sheet = "SKU Inv Monthly", x = inv_tot)
-writeData(store_wb, sheet = "SKU Monthly", x = tot_sales_sku)
-writeData(store_wb, sheet = "SKU by Store", x = skuByStoreClean)
 writeData(store_wb, sheet = "SQL Upload", x = sqlClean)
 
 # Export the file
