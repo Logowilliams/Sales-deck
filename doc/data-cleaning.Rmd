@@ -4,9 +4,9 @@ author: "Logan Williams"
 date: "12/3/2021"
 output: html_document
 params:
-  wk: 7
+  wk: 25
   year: 2023
-  month: "March"
+  month: "July"
   monthlyTracker: "https://docs.google.com/spreadsheets/d/1zS9KHYaF8hkdCaIK2WDkM9mMxwPI9QO1FAjl-rpK2xA/edit#gid=30792091"
   gtmTracker: "https://docs.google.com/spreadsheets/d/1hMI2wEZMa69btaD6Rw9JDy4WdEgjvM21v0S1G5NerRA/edit#gid=170885893"
 ---
@@ -61,8 +61,11 @@ store <- raw_store[!is.na(raw_store[1]),]
 store <- janitor::row_to_names(store, 1)
 
 #separate data between inventory and this weeks sales
-if(params$wk < 10){
+if(params$wk < 9){
   inventory <- filter(store, `WM Week` == paste(params$year, 0,params$wk+1, sep = ""))
+  sales <- filter(store, `WM Week` == paste(params$year, 0, params$wk, sep = ""))
+}else if(params$wk == 9){
+  inventory <- filter(store, `WM Week` == paste(params$year,params$wk+1, sep = ""))
   sales <- filter(store, `WM Week` == paste(params$year, 0, params$wk, sep = ""))
 }else if(params$wk >= 48){
   inventory <- filter(store, `WM Week` == paste(params$year-1, params$wk+1, sep = ""))
@@ -74,8 +77,10 @@ if(params$wk < 10){
 
 #transform sales data to numeric to prep for summarise
 sales$`POS Qty` <- as.numeric(sales$`POS Qty`)
-sales$`POS Sales` <- as.numeric(sales$`POS Sales`)
+sales <- mutate(sales, `POS Sales` = 0)
+#sales$`POS Sales` <- as.numeric(sales$`POS Sales`)
 sales$`Total Customer Item Return` <- as.numeric(sales$`Total Customer Item Return`)
+sales <- mutate(sales, `Item Flags` = "")
 
 #create pivot table
 sales%>%
@@ -174,7 +179,8 @@ if(sum(skuByStore$Gross_Unit) != salesCheck) stop("Error in skuByStore gross uni
 #load online data
 online <- read_excel(here("data", params$year, month, paste("Week", params$wk, sep = ""), "online.xlsx"))
 #add POS Sales column
-online <- mutate(online, `POS Sales` = `Average Unit Retail`*`Net Units`)
+#online <- mutate(online, `POS Sales` = `Average Unit Retail`*`Net Units`)
+online <- mutate(online, `POS Sales` = 0)
 
 #Rename columns, mutate columns to perform calculations
 online%>%
@@ -182,7 +188,8 @@ online%>%
   mutate(WeekEnd = this_week$WeekEnd)%>%
   mutate(`Store Nbr` = 99999)%>%
   mutate(`WM Week` = this_week$`WM Week`)%>%
-  mutate(`POS Sales` = `Average Unit Retail`*`Net Units`)%>%
+  #mutate(`POS Sales` = `Average Unit Retail`*`Net Units`)%>%
+  mutate(`POS Sales` = 0)%>%
   mutate(`Curr Str On Hand Qty` = 0)%>%
   mutate(`Curr Instock %` = 0)%>%
   mutate(`Curr Str On Order Qty` = 0)%>%
@@ -270,17 +277,17 @@ sqlClean <- bind_rows(sqlClean, onlineSql)
 #Prep Inventory Variables for SQL Upload
 ```{r}
 #create column index
-cols.num.inv <- c(1,5,7:14)
+cols.num.inv <- c(1,6:13)
 #prep for merge, make sure columns have same class
 inventory[cols.num.inv] <- sapply(inventory[cols.num.inv],as.numeric)
 inventory%>%
-  group_by(`WM Week`, `Brand Desc`, `Vendor Stk Nbr`, `Item Nbr`, `Item Flags`, `UPC`)%>%
-  summarise()
+  group_by(`Item Nbr`)%>%
+  summarise(onHand = sum(`Curr Str On Hand Qty`), instock = mean(`Curr Instock %`)) -> inventory
 ```
 
 # Check for New UPCs
 ```{r}
-upcList <- read_sheet(params$gtmTracker, sheet = "WMT: SKU | Sales [2023]", range = "B3:B170")
+upcList <- read_sheet(params$gtmTracker, sheet = "WMT SKU Sales [2023]", range = "B3:B177")
 
 #check for missing UPCs
 missingUpc <- c()
@@ -337,11 +344,11 @@ addWorksheet(store_wb, "SQL Upload")
 
 # Write the data to the sheets
 writeData(store_wb, sheet = "Sales", x = tot_sales)
-writeData(store_wb, sheet = "Raw Data", x = raw_store)
-writeData(store_wb, sheet = "Inventory", x = inventory)
 writeData(store_wb, sheet = "Store Data", x = salesByStore)
-writeData(store_wb, sheet = "SKU Inv Monthly", x = inv_tot)
+writeData(store_wb, sheet = "SKU by Store", x = skuByStoreClean)
 writeData(store_wb, sheet = "SQL Upload", x = sqlClean)
+writeData(store_wb, sheet = "Inventory", x = inventory)
+writeData(store_wb, sheet = "Raw Data", x = raw_store)
 
 # Export the file
 saveWorkbook(store_wb, here("results", params$year, month, paste("Week", params$wk, sep = ""), paste("Google Weekly Recap (Stores) - Week ", params$wk, ".xlsx", sep = "")), overwrite = TRUE)
